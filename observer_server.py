@@ -381,17 +381,15 @@ class Task(object):
         while not self.m_exit:
             cur_time = time.time()
             if self.m_mail_queue.qsize() > 0 and mail_time + self.m_cfg_manager.mail_interval_sec < cur_time:
-                print '1## mail ....'
                 mail_info = self.m_mail_queue.get()
                 mail_time = cur_time
                 send_mail(mail_info[0], mail_info[1], mail_info[2], mail_info[3], \
                     mail_info[4], mail_info[5], mail_info[6], mail_info[7]) 
-                print '2## mail ....'
             time.sleep(1)
     def log_runtine(self):
         while not self.m_exit:
             try:
-                #log_info('log check ...')
+                log_info('observer servicing ...')
                 self.m_io_map.poll(self.m_cfg_manager.select_timeout)
                 self.__check_restart()
             except KeyboardInterrupt:
@@ -452,8 +450,9 @@ class Task(object):
         return uniq_cmd_lst
     '''更新记录文件'''
     def __dump_cmd(self):
+        record_path = '%s/%s' % (self.m_cfg_manager.work_dir.rstrip('/'), self.m_cfg_manager.record_file)
         uniq_cmd_lst = self.__get_uniq_cmd_lst()
-        fid = open(self.m_cfg_manager.record_file, 'w')
+        fid = open(record_path, 'w')
         for cmd in uniq_cmd_lst:
             fid.write('%s\n' % cmd)
         fid.close()
