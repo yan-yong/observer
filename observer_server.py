@@ -1,0 +1,549 @@
+#!/usr/bin/env python
+#coding=utf-8
+import os
+import signal, traceback
+import select, sys, subprocess, Queue, threading
+from observer_common import *
+from checker import *
+
+'''g_err_msg用于保存最后一个错误信息'''
+g_err_msg = ''
+def set_err(err_msg):
+    global g_err_msg
+    g_err_msg = err_msg
+    log_error('%s' % g_err_msg)
+def get_err():
+    global g_err_msg
+    ret = copy.deepcopy(g_err_msg)
+    g_err_msg = ''
+    return ret
+
+class Command:
+    def __init__(self, proc_dir, cmd, cfg, mail_queue):
+        self.m_email_queue = mail_queue
+        self.m_proc_dir = proc_dir
+        self.m_cmd      = cmd
+        self.m_cmd_id   = get_cmd_id(cmd)
+        self.m_cfg      = cfg
+        self.m_checker_lst = []
+        self.m_cur_std_name = ''
+        self.m_cur_std_file = None
+        self.m_cur_err_file = None
+        self.m_process = None
+        self.m_std_fd = None
+        self.m_err_fd = None
+        '''是否是程序自主退出'''
+        self.m_invalid_quit = True
+        self.m_stop_time = 0
+        self.__add_checkers()
+    def __str__(self):
+        #return '%s\t%s\t%s' % (self.process_id(), self.m_proc_dir, self.m_cmd)
+        return '%s\t%s' % (self.m_proc_dir, self.m_cmd)
+    '''添加各种检测器'''
+    def __add_checkers(self):
+        if self.m_cfg.save_log_size > 0:
+            self.m_checker_lst.append( \
+                LogSizeChecker(self.m_cfg.log_dir, r'%s_\d{4}-\d{2}-\d{2}_\d{2}.(?:std|err)' % self.m_cmd_id, \
+                self.m_cfg.save_log_size) )
+        for keyword_str in self.m_cfg.monitor_keyword_list:
+            self.m_checker_lst.append(KeywordChecker(keyword_str))
+        for file_info in self.m_cfg.monitor_newfile_list:
+            self.m_checker_lst.append(NewFileChecker(file_info))
+    def __close_fd(self):
+        if self.m_cur_std_file is not None:
+            self.m_cur_std_file.close()
+            self.m_cur_std_file = None
+        if self.m_cur_err_file is not None:
+            self.m_cur_err_file.close()
+            self.m_cur_err_file = None
+    def __truncate_log(self):
+        hour_std_name, hour_err_name = log_file_name(self.m_cfg.log_dir, self.m_cmd_id)
+        if self.m_cur_std_name == hour_std_name:
+            return False
+        init_std_name, init_err_name = init_log_file_name(self.m_cfg.m_log_dir, self.m_cmd_id)
+        self.__close_fd() 
+        self.m_cur_std_file = open(hour_std_name, 'a')
+        self.m_cur_err_file = open(hour_err_name, 'a')
+        try:
+            os.system('rm -f %s && ln -s %s/%s %s' % \
+                    (init_std_name, os.getcwd(), hour_std_name, init_std_name))
+            os.system('rm -f %s && ln -s %s/%s %s' % \
+                    (init_err_name, os.getcwd(), hour_err_name, init_err_name))
+            self.m_cur_std_name = hour_std_name
+        except Exception, err:
+            log_error(str(err))
+        return True
+    def __alert(self, sub, msg):
+        sub = '%s: %s' % (get_local_ip(), sub)
+        msg = '%s\n\n%s' % (msg, self.__str__())
+        self.m_email_queue.put((self.m_cfg.mail_to_list, sub, msg, \
+            self.m_cfg.mail_host, self.m_cfg.mail_user, self.m_cfg.mail_psw, \
+            self.m_cfg.mail_postfix, self.m_cfg.mail_from_name))
+    '''日志处理'''
+    def __handle_log(self, fid, buffer):
+        fid.write(buffer)
+        for checker in self.m_checker_lst:
+            if checker.check(buffer):
+                self.__alert(checker.checker_subject(), checker.checker_msg())
+        self.__truncate_log()
+    def handle_stdout(self, buffer):
+        self.__handle_log(self.m_cur_std_file, buffer)
+    def handle_stderr(self, buffer):
+        self.__handle_log(self.m_cur_err_file, buffer)
+    def popen(self):
+        try:
+            self.m_stop_time = 0
+            os.chdir(self.m_proc_dir)
+            #self.m_process = subprocess.Popen(self.m_cmd.split(' '), stdout=subprocess.PIPE, \
+            #    stderr=subprocess.PIPE, preexec_fn=os.setsid, close_fds=True)
+            self.m_process = subprocess.Popen(self.m_cmd.split(' '), stdout=subprocess.PIPE, \
+                stderr=subprocess.PIPE, close_fds=True)
+            self.m_std_fd = self.m_process.stdout.fileno()
+            self.m_err_fd = self.m_process.stderr.fileno()
+            hour_std_name, hour_err_name = log_file_name(self.m_cfg.log_dir, self.m_cmd_id)
+            self.m_cur_std_file = open(hour_std_name, 'a')
+            self.m_cur_err_file = open(hour_err_name, 'a')
+            self.m_cur_std_name = hour_std_name
+            return True
+        except Exception, err:
+            self.m_stop_time = time.time()
+            self.m_process = None
+            self.m_std_fd  = None
+            self.m_err_fd  = None
+            set_err('popen "%s" error: %s' % (self.m_cmd, err))
+        return False
+    def process_id(self):
+        if self.m_process is None:
+            return None
+        return self.m_process.pid
+    def alive(self):
+        if self.m_process is None:
+            return False
+        return process_exist(self.m_process.pid)
+    def equal(self, proc_dir, cmd):
+        return self.m_proc_dir == proc_dir and self.m_cmd == cmd
+    def __eq__(self, other):
+        return self.m_proc_dir == other.m_proc_dir and self.m_cmd == other.m_cmd
+    def terminate(self, sig_val = signal.SIGTERM):
+        self.m_invalid_quit = False 
+        if self.m_process is not None:
+            self.m_process.send_signal(sig_val)
+            return True
+        return False
+    def handle_close(self):
+        self.m_process.wait()
+        if self.m_std_fd is not None:
+            os.close(self.m_std_fd)
+            self.m_std_fd = None
+        if self.m_err_fd is not None:
+            os.close(self.m_err_fd)
+            self.m_err_fd = None
+        '''程序主动退出报警'''
+        if self.m_invalid_quit and self.m_cfg.monitor_quit:
+            self.__alert(self.m_cfg.invalid_quit_mail_msg, self.m_cfg.invalid_quit_mail_msg)
+    def can_restart(self):
+        if self.m_stop_time > 0 and self.m_stop_time + cmd.m_cfg.restart_wait_sec < time.time():
+            return True
+        return False
+
+class IOMap(object):
+    """A manager for file descriptors and their associated handlers.
+    The poll method dispatches events to the appropriate handlers.
+    """
+    def __init__(self):
+        self.readmap = {}
+        self.writemap = {}
+        wakeup_readfd, wakeup_writefd = os.pipe()
+        self.register_read(wakeup_readfd, self.wakeup_handler)
+        # TODO: remove test when we stop supporting Python <2.5
+        if hasattr(signal, 'set_wakeup_fd'):
+            signal.set_wakeup_fd(wakeup_writefd)
+            self.wakeup_writefd = None
+        else:
+            self.wakeup_writefd = wakeup_writefd
+    def register_read(self, fd, handler):
+        """Registers an IO handler for a file descriptor for reading."""
+        self.readmap[fd] = handler
+    def register_write(self, fd, handler):
+        """Registers an IO handler for a file descriptor for writing."""
+        self.writemap[fd] = handler
+    def unregister(self, fd):
+        """Unregisters the given file descriptor."""
+        if fd is None:
+            return
+        if fd in self.readmap:
+            del self.readmap[fd]
+        if fd in self.writemap:
+            del self.writemap[fd]
+    def poll(self, timeout=None):
+        """Performs a poll and dispatches the resulting events."""
+        if not self.readmap and not self.writemap:
+            return
+        rlist = list(self.readmap)
+        wlist = list(self.writemap)
+        try:
+            rlist, wlist, _ = select.select(rlist, wlist, [], timeout)
+        except select.error:
+            _, e, _ = sys.exc_info()
+            errno = e.args[0]
+            if errno == EINTR:
+                return
+            else:
+                raise
+        for fd in rlist:
+            handler = self.readmap.get(fd)
+            if handler is not None:
+                handler(fd)
+        for fd in wlist:
+            handler = self.writemap.get(fd)
+            if handler is not None:
+                handler(fd)
+    def wakeup_handler(self, fd):
+        """ Handles read events on the signal wakeup pipe.
+        This ensures that SIGCHLD signals aren't lost.
+        """
+        try:
+            os.read(fd, 4096)
+        except (OSError, IOError):
+            _, e, _ = sys.exc_info()
+            errno, message = e.args
+            if errno != EINTR:
+                sys.stderr.write('Fatal error reading from wakeup pipe: %s\n'% message)
+                raise FatalError
+
+class Task(object):
+    """docstring for Task"""
+    def __init__(self, io_map, cfg_manager):
+        self.BUFFER_SIZE = 4096 
+        self.m_io_map = io_map
+        self.m_cfg_manager = cfg_manager
+        socket.setdefaulttimeout(cfg_manager.socket_timeout)
+        self.m_cmd_dict = {}
+        '''程序监控列表'''
+        self.m_restart_cmd_lst = []
+        self.m_server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.m_server_socket.setblocking(False)
+        self.m_server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.m_server_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        try:
+            self.m_server_socket.bind(('0.0.0.0', self.m_cfg_manager.listen_port))
+        except Exception, err:
+            log_error('Exception %s' % err) 
+            sys.exit(1)
+        self.m_mail_queue = Queue.Queue()
+        self.m_server_socket.listen(5)
+        self.m_io_map.register_read(self.m_server_socket.fileno(), self.__handle_network_read)
+        self.m_poll_thd = None
+        self.m_mail_thd = None
+        self.m_exit = False
+        self.m_client_dict = {}
+        self.__load_cmd()
+    def __find_pid(self, pid):
+        for cmd_obj in self.m_cmd_dict.values():
+            if cmd_obj.process_id() == pid:
+                return cmd_obj
+        for cmd_obj in self.m_restart_cmd_lst:
+            if cmd_obj.process_id() == pid:
+                return cmd_obj
+        return None
+    def __find_cmd(self, proc_dir, cmd_str):
+        for cmd_obj in self.m_cmd_dict.values():
+            if cmd_obj.equal(proc_dir, cmd_str):
+                return cmd_obj
+        for cmd_obj in self.m_restart_cmd_lst:
+            if cmd_obj.equal(proc_dir, cmd_str):
+                return cmd_obj
+        return None
+    def __add_cmd_lst(self, cmd_obj):
+        assert(cmd_obj.m_std_fd is not None and cmd_obj.m_err_fd is not None)
+        self.m_cmd_dict[cmd_obj.m_std_fd] = cmd_obj
+        self.m_cmd_dict[cmd_obj.m_err_fd] = cmd_obj
+    def __remove_cmd_lst(self, cmd_obj):
+        if cmd_obj.m_std_fd is not None and self.m_cmd_dict.get(cmd_obj.m_std_fd):
+            del(self.m_cmd_dict[cmd_obj.m_std_fd])
+        if cmd_obj.m_err_fd is not None and self.m_cmd_dict.get(cmd_obj.m_err_fd):
+            del(self.m_cmd_dict[cmd_obj.m_err_fd])
+    def __start_cmd(self, cmd_obj):
+        if not cmd_obj.popen():
+            return False
+        log_info('start process %s %s success.' % (cmd_obj.m_proc_dir, cmd_obj.m_cmd))
+        self.__add_cmd_lst(cmd_obj)
+        self.m_io_map.register_read(cmd_obj.m_std_fd, self.__handle_stdout)
+        self.m_io_map.register_read(cmd_obj.m_err_fd, self.__handle_stderr)
+        self.__dump_cmd()
+        return True
+    def __check_restart(self):
+        cnt = 0
+        while cnt < len(self.m_restart_cmd_lst):
+            cmd = self.m_restart_cmd_lst[cnt]
+            if not cmd.m_invalid_quit:
+                del(self.m_restart_cmd_lst[cnt])
+                continue
+            if cmd.can_restart():
+                self.__start_cmd(cmd)
+                del(self.m_restart_cmd_lst[cnt])
+            else:
+                cnt += 1
+    def __close_client(self, fd):
+        try:
+            client_socket, client_address = self.m_client_dict[fd] 
+            self.m_io_map.unregister(fd)
+            client_socket.close()
+            del(self.m_client_dict[fd])
+        except Exception, err:
+            log_error('__close_client %s err: %s' % (client_address, err))
+    def __response_client(self, fd, content):
+        global g_msg_end_flag
+        content += g_msg_end_flag
+        try:
+            client_socket, client_address = self.m_client_dict[fd]
+            client_socket.send(content)
+            log_info('%s --> %s' % (content, client_address))
+        except Exception, err:
+            log_error('send to %s err: %s' % (client_address, err))
+    def __response_fail(self, fd, msg):
+        self.__response_client(fd, 'fail: %s' % msg)
+    def __response_success(self, fd, msg):
+        self.__response_client(fd, 'success: %s' % msg)
+    def __decode_client_msg(self, rcv_msg):
+        '''example: start /home/yanyong python tmp.py args'''
+        str_val = my_strip(rcv_msg)
+        cmd_lst = my_split(str_val, ' ')
+        flag = None
+        pid  = None
+        proc_dir = None
+        cmd_str = None
+        if len(cmd_lst) >=2 and cmd_lst[1].isdigit():
+            flag     = cmd_lst[0]
+            pid      = int(cmd_lst[1])
+        elif len(cmd_lst) > 2:
+            flag     = cmd_lst[0]
+            proc_dir = cmd_lst[1]
+            cmd_str  = cmd_lst[2:]
+        return flag, pid, proc_dir, ' '.join(cmd_str)
+    def __handle_network_read(self, fd):
+        if fd == self.m_server_socket.fileno():
+            try:            
+                client_socket, client_address = self.m_server_socket.accept()
+                log_info('Recv request from %s:%s' % (client_address[0], client_address[1]))
+                client_socket.setblocking(False)
+                client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                client_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.m_client_dict[client_socket.fileno()] = (client_socket, client_address)
+                self.m_io_map.register_read(client_socket.fileno(), self.__handle_network_read)
+            except Exception, err:
+                log_error('Accept error: %s, %s' % (err, traceback.format_exc()))
+            return
+        '''handle client socket read'''
+        try:
+            client_socket, client_address = self.m_client_dict[fd]
+            rcv_data = client_socket.recv(self.BUFFER_SIZE)
+            if len(rcv_data) == 0:
+                log_info('client closed %s:%s' % (client_address[0], client_address[1]))
+                self.__close_client(fd)
+                return
+        except Exception, err:
+            log_error('Read exception from %s:%s %s' % (client_address[0], client_address[1], err))
+            self.__close_client(fd)
+            return
+        flag, pid, proc_dir, cmd_str = self.__decode_client_msg(rcv_data)
+        if flag is None:
+            self.__response_fail(fd, 'invalid arguments format: %s.' % rcv_data)
+            self.__close_client(fd)
+            return
+        success = False
+        msg     = ''
+        if flag == 'start':
+            msg = '%s %s in directory %s' % (flag, cmd_str, proc_dir)
+            success = self.start_process(proc_dir, cmd_str)
+        elif flag == 'stop' or flag == 'kill':
+            msg = '%s %s in directory %s' % (flag, cmd_str, proc_dir)
+            sig_val = signal.SIGTERM
+            if flag == 'kill':
+                sig_val = signal.SIGKILL
+            success = self.terminate_process(pid, proc_dir, cmd_str, sig_val)
+        elif flag == 'pstatus':
+            msg = self.proc_status(pid, proc_dir, cmd_str)
+            if msg is None:
+                success = False
+            else:
+                success = True
+        elif flag == 'list':
+            msg = self.all_status()
+            success = True
+        if not success: 
+            self.__response_fail(fd, get_err())
+            self.__close_client(fd)
+        else:
+            self.__response_success(fd, msg)
+    def mail_runtine(self):
+        mail_time = 0
+        while not self.m_exit:
+            cur_time = time.time()
+            if self.m_mail_queue.qsize() > 0 and mail_time + self.m_cfg_manager.mail_interval_sec < cur_time:
+                print '1## mail ....'
+                mail_info = self.m_mail_queue.get()
+                mail_time = cur_time
+                send_mail(mail_info[0], mail_info[1], mail_info[2], mail_info[3], \
+                    mail_info[4], mail_info[5], mail_info[6], mail_info[7]) 
+                print '2## mail ....'
+            time.sleep(1)
+    def log_runtine(self):
+        while not self.m_exit:
+            try:
+                #log_info('log check ...')
+                self.m_io_map.poll(self.m_cfg_manager.select_timeout)
+                self.__check_restart()
+            except KeyboardInterrupt:
+            # This exception handler doesn't print out any fancy status
+            # information--it just stops.
+                self.interrupted()
+    '''检测到有程序进程退出时, 都会回调这个函数'''
+    def __handle_close(self, fd):
+        cmd = self.m_cmd_dict.get(fd)
+        if cmd is None:
+            return
+        '''从io列表中删除'''
+        self.m_io_map.unregister(cmd.m_std_fd)
+        self.m_io_map.unregister(cmd.m_err_fd)
+        '''关闭文件描述符'''
+        cmd.handle_close()
+        self.__remove_cmd_lst(cmd)
+        '''加入到重启列表中'''
+        if cmd.m_invalid_quit and cmd.m_cfg.quit_restart:
+            self.m_restart_cmd_lst.append(cmd)
+        if not cmd.m_invalid_quit:
+            self.__dump_cmd()
+    def __handle_stdout(self, fd):
+        """ handle Popen return stdout"""
+        try:
+            buf = os.read(fd, self.BUFFER_SIZE)
+            if buf:
+                cmd = self.m_cmd_dict[fd]
+                cmd.handle_stdout(buf)
+            else:
+                self.__handle_close(fd)
+        except (OSError, IOError):
+            _, e, _ = sys.exc_info()
+            if e.errno != EINTR:
+                self.__handle_close(fd)
+                pass
+    def __handle_stderr(self, fd):
+        """ handle Popen return stderr """
+        try:
+            buf = os.read(fd, self.BUFFER_SIZE)
+            if buf:
+                cmd = self.m_cmd_dict[fd]
+                cmd.handle_stderr(buf)
+            else:
+                self.__handle_close(fd)
+        except (OSError, IOError):
+            _, e, _ = sys.exc_info()
+            if e.errno != EINTR:
+                self.__handle_close(fd)
+                pass
+    def __get_uniq_cmd_lst(self):
+        uniq_cmd_lst = []
+        cmd_lst = self.m_cmd_dict.values()
+        cmd_lst.extend(self.m_restart_cmd_lst)
+        for cmd in cmd_lst:
+            if not cmd in uniq_cmd_lst:
+                uniq_cmd_lst.append(cmd)
+        return uniq_cmd_lst
+    '''更新记录文件'''
+    def __dump_cmd(self):
+        uniq_cmd_lst = self.__get_uniq_cmd_lst()
+        fid = open(self.m_cfg_manager.record_file, 'w')
+        for cmd in uniq_cmd_lst:
+            fid.write('%s\n' % cmd)
+        fid.close()
+    '''加载记录文件'''
+    def __load_cmd(self):
+        record_path = '%s/%s' % (self.m_cfg_manager.work_dir.rstrip('/'), self.m_cfg_manager.record_file)
+        try:
+            fid = open(record_path, 'r')
+        except Exception, err:
+            log_error('load record file %s error: %s' % (self.m_cfg_manager.record_file, err))
+            return
+        for line in fid.readlines():
+            line = my_strip(line)
+            cols = my_split(line, '\t')
+            proc_dir = cols[0]
+            cmd_str  = ' '.join(cols[1:])
+            self.start_process(proc_dir, cmd_str)
+    '''查询进程状态'''
+    def proc_status(self, pid, proc_dir, cmd_str):
+        cmd_obj = None
+        if pid is not None:
+            cmd_obj = self.__find_pid(pid)
+        else:
+            cmd_obj = self.__find_cmd(proc_dir, cmd_str)
+        if cmd_obj is None:
+            set_err('cannot find process pid: %s or cmd_str: %s %s' % (pid, proc_dir, cmd_str))
+            return None
+        status = 'running'
+        if not cmd_obj.alive():
+            status = 'stopped'
+        return status
+    def all_status(self):
+        msg = '\n'
+        uniq_cmd_lst = self.__get_uniq_cmd_lst()
+        for cmd in uniq_cmd_lst:
+            status = 'running'
+            if not cmd.alive():
+                status = 'stopped'
+            msg += str(cmd) + '\t' + status
+        return msg
+    '''启动一个进程'''
+    def start_process(self, proc_dir, cmd_str):
+        if not os.path.exists(proc_dir):
+            set_err('proc_dir %s not exist' % proc_dir)
+            return False
+        cmd_obj = self.__find_cmd(proc_dir, cmd_str)
+        if cmd_obj is not None:
+            set_err('duplicate cmd: %s %s' % (proc_dir, cmd_str))
+            return False
+        cmd_id = get_cmd_id(cmd_str)
+        if len(cmd_id) == 0:
+            set_err('cannot find cmd_id: %s %s' % (proc_dir, cmd_str))
+            return False 
+        cmd_cfg = self.m_cfg_manager.get_cmd_config(cmd_id)
+        cmd_obj = Command(proc_dir, cmd_str, cmd_cfg, self.m_mail_queue)
+        return self.__start_cmd(cmd_obj)
+    '''手动地让进程退出'''
+    def terminate_process(self, pid, proc_dir, cmd_str, sig_val = signal.SIGTERM):
+        cmd_obj = None
+        if pid is not None:
+            cmd_obj = self.__find_pid(pid)
+        else:
+            cmd_obj = self.__find_cmd(proc_dir, cmd_str)
+        if cmd_obj is None:
+            set_err('cannot find process pid: %s or cmd_str: %s %s' % (pid, proc_dir, cmd_str))
+            return False
+        cmd_obj.terminate(sig_val) 
+        return True
+    def start(self):
+        self.m_log_thd = threading.Thread(target = self.log_runtine)
+        self.m_log_thd.start()
+        self.m_mail_thd = threading.Thread(target = self.mail_runtine)
+        self.m_mail_thd.start()
+    def exit(self):
+        self.m_exit = True
+    def join(self):
+        if self.m_log_thd is not None:
+            self.m_log_thd.join()
+            self.m_log_thd = None
+        if self.m_mail_thd is not None:
+            self.m_mail_thd.join()
+            self.m_mail_thd = None 
+    def interrupted(self):
+        """Cleans up after a keyboard interrupt."""
+        sys.exit(255)
+ 
+if __name__ == '__main__':
+    cfg_manager = ConfigManager()
+    iomap = IOMap()
+    task = Task(iomap, cfg_manager)
+    task.start()
+    exit_check = ExitCheck(task.exit)
+    exit_check.wait()
