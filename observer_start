@@ -2,42 +2,8 @@
 import sys, os, subprocess, time, platform, ConfigParser, fcntl, thread, getopt
 from observer_common import *
 
-def handle_server_response(client_socket, recv_content):
-    if len(recv_content) == 0:
-        client_socket.close()
-        sys.exit(1)
-    cols = my_split(recv_content, ':')    
-    if len(cols) == 0:
-        log_error('invalid response: %s' % recv_content)
-        sys.exit(1)
-    if cols[0] == 'success':
-        return True, ':'.join(cols[1:])
-    elif cols[0] == 'fail':
-        return False, ':'.join(cols[1:])
-    else:
-        log_error('invalid response flag: %s' % recv_content)
-        sys.exit(1)
-
-def client_start_cmd(client_socket, cmd_str):
-    send_cont = 'start %s %s' % (os.getcwd(), cmd_str) 
-    recv_content = client_send_and_recv(client_socket, send_cont)
-    return handle_server_response(client_socket, recv_content) 
-
-def client_stop_cmd(client_socket, pid, cmd_str):
-    send_cont = 'stop %s' % pid
-    if pid is None:
-        send_cont = 'stop %s %s' % (os.getcwd(), cmd_str) 
-    recv_content = client_send_and_recv(client_socket, send_cont)
-    return handle_server_response(client_socket, recv_content)
-
-def client_cmd_status(client_socket, pid, cmd_str):
-    send_cont = 'pstatus %s' % pid
-    if pid is None:
-        send_cont = 'pstatus %s %s' % (os.getcwd(), cmd_str) 
-    recv_content = client_send_and_recv(client_socket, send_cont)
-    return handle_server_response(client_socket, recv_content)
-
 def observer_start():
+    '''
     socket.setdefaulttimeout(10)
     cfg_manager = ConfigManager()
     opts, args = getopt.getopt(sys.argv[1:], "h:p:")
@@ -53,15 +19,19 @@ def observer_start():
         sys.exit(1)
     client_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
     client_socket.connect((dst_ip, dst_port))
+    '''
+    client_socket, cmd_str = obtain_client_socket_cmd_name() 
     ret, msg = client_start_cmd(client_socket, cmd_str)
     if not ret:
         log_error('%s' % msg)
         client_socket.close()
         sys.exit(1)
+    else:
+        log_info('start success.')
     time.sleep(1)
     ret, msg = client_cmd_status(client_socket, None, cmd_str)
     if not ret or msg == 'stopped':
-        log_info('notice: the programme is stopped.')
+        log_info('notice: the process is stopped.')
     else:
         log_info('the programme is running.')
     client_socket.close()

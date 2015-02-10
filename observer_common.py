@@ -1,6 +1,6 @@
 #!/usr/bin/python
 #encoding: utf-8
-import sys, os, subprocess, time, platform, ConfigParser, fcntl, thread, signal, re
+import sys, os, subprocess, time, platform, ConfigParser, fcntl, thread, signal, re, getopt
 import smtplib, sys, socket
 from email.mime.text import MIMEText
 import urllib2, time, copy
@@ -73,7 +73,7 @@ class ConfigManager:
         self.mail_interval_sec = 60 
         if self.cf.has_option('common', 'mail_interval_sec'):
             self.mail_interval_sec = self.cf.getint('common', 'mail_interval_sec')
-        self.select_timeout = 1
+        self.select_timeout = 2
         if self.cf.has_option('common', 'select_timeout'):
             self.select_timeout = self.cf.getint('common', 'select_timeout')
         self.base_cfg = Config()
@@ -312,3 +312,56 @@ def client_send_and_recv(client_socket, send_cont):
     except Exception, err:
         log_error('network exception: %s' % err)
     return recv_content
+
+def handle_server_response(client_socket, recv_content):
+    if len(recv_content) == 0:
+        client_socket.close()
+        sys.exit(1)
+    cols = my_split(recv_content, ':')    
+    if len(cols) == 0:
+        log_error('invalid response: %s' % recv_content)
+        sys.exit(1)
+    if cols[0] == 'success':
+        return True, ':'.join(cols[1:])
+    elif cols[0] == 'fail':
+        return False, ':'.join(cols[1:])
+    else:
+        log_error('invalid response flag: %s' % recv_content)
+        sys.exit(1)
+
+def client_start_cmd(client_socket, cmd_str):
+    send_cont = 'start %s %s' % (os.getcwd(), cmd_str) 
+    recv_content = client_send_and_recv(client_socket, send_cont)
+    return handle_server_response(client_socket, recv_content) 
+
+def client_stop_cmd(client_socket, pid, cmd_str):
+    send_cont = 'stop %s' % pid
+    if pid is None:
+        send_cont = 'stop %s %s' % (os.getcwd(), cmd_str) 
+    recv_content = client_send_and_recv(client_socket, send_cont)
+    return handle_server_response(client_socket, recv_content)
+
+def client_cmd_status(client_socket, pid, cmd_str):
+    send_cont = 'pstatus %s' % pid
+    if pid is None:
+        send_cont = 'pstatus %s %s' % (os.getcwd(), cmd_str) 
+    recv_content = client_send_and_recv(client_socket, send_cont)
+    return handle_server_response(client_socket, recv_content)
+
+def obtain_client_socket_cmd_name():
+    socket.setdefaulttimeout(10)
+    cfg_manager = ConfigManager()
+    opts, args = getopt.getopt(sys.argv[1:], "h:p:")
+    dst_ip   = '127.0.0.1'
+    dst_port = cfg_manager.listen_port 
+    for op, value in opts:
+        if op == '-h':
+            dst_ip = value
+        elif op == '-p':
+            dst_port = int(value)
+    cmd_str  = get_observer_cmd(args)
+    if cmd_str is None:
+        sys.exit(1)
+    client_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    client_socket.connect((dst_ip, dst_port))
+    return client_socket, cmd_str
