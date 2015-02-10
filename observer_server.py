@@ -4,7 +4,7 @@ import os
 import signal, traceback
 import select, sys, subprocess, Queue, threading
 from observer_common import *
-from checker import *
+from observer_checker import *
 
 '''g_err_msg用于保存最后一个错误信息'''
 g_err_msg = ''
@@ -389,7 +389,6 @@ class Task(object):
     def log_runtine(self):
         while not self.m_exit:
             try:
-                log_info('observer servicing ...')
                 self.m_io_map.poll(self.m_cfg_manager.select_timeout)
                 self.__check_restart()
             except KeyboardInterrupt:
@@ -409,6 +408,7 @@ class Task(object):
         self.__remove_cmd_lst(cmd)
         '''加入到重启列表中'''
         if cmd.m_invalid_quit and cmd.m_cfg.quit_restart:
+            log_info('%s stopped, wait restart.' % cmd)
             self.m_restart_cmd_lst.append(cmd)
         if not cmd.m_invalid_quit:
             self.__dump_cmd()
