@@ -60,7 +60,7 @@ class Command:
         hour_std_name, hour_err_name = log_file_name(self.m_cfg.log_dir, self.m_cmd_id)
         if self.m_cur_std_name == hour_std_name:
             return False
-        init_std_name, init_err_name = init_log_file_name(self.m_cfg.m_log_dir, self.m_cmd_id)
+        init_std_name, init_err_name = init_log_file_name(self.m_cfg.log_dir, self.m_cmd_id)
         self.__close_fd() 
         self.m_cur_std_file = open(hour_std_name, 'a')
         self.m_cur_err_file = open(hour_err_name, 'a')
@@ -100,10 +100,7 @@ class Command:
                 stderr=subprocess.PIPE, close_fds=True)
             self.m_std_fd = self.m_process.stdout.fileno()
             self.m_err_fd = self.m_process.stderr.fileno()
-            hour_std_name, hour_err_name = log_file_name(self.m_cfg.log_dir, self.m_cmd_id)
-            self.m_cur_std_file = open(hour_std_name, 'a')
-            self.m_cur_err_file = open(hour_err_name, 'a')
-            self.m_cur_std_name = hour_std_name
+            self.__truncate_log()
             return True
         except Exception, err:
             self.m_stop_time = time.time()
