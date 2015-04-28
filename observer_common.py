@@ -292,7 +292,7 @@ def send_mail(to_list, sub, content, main_server, mail_user, mail_pass, mail_pos
         log_info('mail to %s success.' % str(to_list))
         return True
     except Exception, e:
-        print log_error("mail to %s exception: %s" % (str(to_list), e)) 
+        log_error("mail to %s exception: %s" % (str(to_list), e)) 
         return False
 
 g_msg_end_flag = ';'

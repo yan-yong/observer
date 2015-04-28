@@ -33,7 +33,7 @@ class Command:
         self.m_std_fd = None
         self.m_err_fd = None
         '''是否是程序自主退出'''
-        self.m_invalid_quit = True
+        self.m_active_quit = True
         self.m_stop_time = 0
         self.__add_checkers()
     def __str__(self):
@@ -86,6 +86,8 @@ class Command:
             if checker.check(buffer):
                 self.__alert(checker.checker_subject(), checker.checker_msg())
         self.__truncate_log()
+    def __eq__(self, other):
+        return self.m_proc_dir == other.m_proc_dir and self.m_cmd == other.m_cmd
     def handle_stdout(self, buffer):
         self.__handle_log(self.m_cur_std_file, buffer)
     def handle_stderr(self, buffer):
@@ -119,10 +121,8 @@ class Command:
         return process_exist(self.m_process.pid)
     def equal(self, proc_dir, cmd):
         return self.m_proc_dir == proc_dir and self.m_cmd == cmd
-    def __eq__(self, other):
-        return self.m_proc_dir == other.m_proc_dir and self.m_cmd == other.m_cmd
     def terminate(self, sig_val = signal.SIGTERM):
-        self.m_invalid_quit = False 
+        self.m_active_quit = False 
         if self.m_process is not None:
             self.m_process.send_signal(sig_val)
             return True
@@ -134,10 +134,16 @@ class Command:
             self.m_std_fd = None
         if self.m_err_fd is not None:
             os.close(self.m_err_fd)
-            self.m_err_fd = None
+            self.m_err_fd = None        
         '''程序主动退出报警'''
-        if self.m_invalid_quit and self.m_cfg.monitor_quit:
+        if self.m_active_quit and self.m_cfg.monitor_quit:
             self.__alert(self.m_cfg.invalid_quit_mail_msg, self.m_cfg.invalid_quit_mail_msg)
+        if self.m_cur_std_file:
+            self.m_cur_std_file.close()
+            self.m_cur_std_file = None
+        if self.m_cur_err_file:
+            self.m_cur_err_file.close()
+            self.m_cur_err_file = None
     def can_restart(self):
         if self.m_stop_time > 0 and self.m_stop_time + cmd.m_cfg.restart_wait_sec < time.time():
             return True
@@ -273,7 +279,7 @@ class Task(object):
         cnt = 0
         while cnt < len(self.m_restart_cmd_lst):
             cmd = self.m_restart_cmd_lst[cnt]
-            if not cmd.m_invalid_quit:
+            if not cmd.m_active_quit:
                 del(self.m_restart_cmd_lst[cnt])
                 continue
             if cmd.can_restart():
@@ -339,6 +345,7 @@ class Task(object):
                 log_info('client closed %s:%s' % (client_address[0], client_address[1]))
                 self.__close_client(fd)
                 return
+            log_info('RECV: %s from %s\n' % (rcv_data, client_address))
         except Exception, err:
             log_error('Read exception from %s:%s %s' % (client_address[0], client_address[1], err))
             self.__close_client(fd)
@@ -397,17 +404,18 @@ class Task(object):
         cmd = self.m_cmd_dict.get(fd)
         if cmd is None:
             return
+        '''从命令列表里删除'''
+        self.__remove_cmd_lst(cmd)
         '''从io列表中删除'''
         self.m_io_map.unregister(cmd.m_std_fd)
         self.m_io_map.unregister(cmd.m_err_fd)
         '''关闭文件描述符'''
         cmd.handle_close()
-        self.__remove_cmd_lst(cmd)
         '''加入到重启列表中'''
-        if cmd.m_invalid_quit and cmd.m_cfg.quit_restart:
+        if cmd.m_active_quit and cmd.m_cfg.quit_restart:
             log_info('%s stopped, wait restart.' % cmd)
             self.m_restart_cmd_lst.append(cmd)
-        if not cmd.m_invalid_quit:
+        if not cmd.m_active_quit or not cmd.m_cfg.quit_restart:
             self.__dump_cmd()
     def __handle_stdout(self, fd):
         """ handle Popen return stdout"""
@@ -475,7 +483,7 @@ class Task(object):
         else:
             cmd_obj = self.__find_cmd(proc_dir, cmd_str)
         if cmd_obj is None:
-            set_err('cannot find process pid: %s or cmd_str: %s %s' % (pid, proc_dir, cmd_str))
+            set_err('process nofound where pid=%s or cmd_str=(%s %s)' % (pid, proc_dir, cmd_str))
             return None
         status = 'running'
         if not cmd_obj.alive():
