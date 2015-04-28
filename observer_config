@@ -1,0 +1,26 @@
+[common]
+listen_port = 9090
+work_dir = /var/observer
+record_file = process.dat
+socket_timeout_sec = 10
+service_log = service.log
+mail_interval_sec = 60
+select_timeout = 2
+
+[base]
+log_save_size = 400000
+log_dir = log
+monitor_keyword = invalid:10/60;
+monitor_newfile = data/:.*\.txt:2/60;
+monitor_quit = no
+quit_restart = no
+mail_from = Sogou Observer
+mail_server = smtp.163.com
+mail_reporter = yyclyj858888
+mail_reporter_password = yyclyjyyclyj    
+mail_postfix = 163.com
+#mail_to = yan.yong@founder.com.cn;
+
+[test]
+monitor_keyword = stderr:10/60;
+quit_restart = yes
