@@ -58,7 +58,7 @@ class Command:
             self.m_cur_err_file = None
     def __truncate_log(self):
         hour_std_name, hour_err_name = log_file_name(self.m_cfg.log_dir, self.m_cmd_id)
-        if self.m_cur_std_name == hour_std_name:
+        if  self.m_cur_std_file is not None and self.m_cur_std_name == hour_std_name:
             return False
         init_std_name, init_err_name = init_log_file_name(self.m_cfg.log_dir, self.m_cmd_id)
         self.__close_fd() 
@@ -130,12 +130,12 @@ class Command:
     def handle_close(self):
         self.m_process.wait()
         if self.m_std_fd is not None:
-            os.close(self.m_std_fd)
+            #os.close(self.m_std_fd)
             self.m_std_fd = None
         if self.m_err_fd is not None:
-            os.close(self.m_err_fd)
+            #os.close(self.m_err_fd)
             self.m_err_fd = None        
-        '''程序主动退出报警'''
+        '''程序主动退出 && 报警'''
         if self.m_active_quit and self.m_cfg.monitor_quit:
             self.__alert(self.m_cfg.invalid_quit_mail_msg, self.m_cfg.invalid_quit_mail_msg)
         if self.m_cur_std_file:
@@ -145,7 +145,7 @@ class Command:
             self.m_cur_err_file.close()
             self.m_cur_err_file = None
     def can_restart(self):
-        if self.m_stop_time > 0 and self.m_stop_time + cmd.m_cfg.restart_wait_sec < time.time():
+        if self.m_stop_time > 0 and self.m_stop_time + self.m_cfg.restart_wait_sec < time.time():
             return True
         return False
 
@@ -295,35 +295,16 @@ class Task(object):
             del(self.m_client_dict[fd])
         except Exception, err:
             log_error('__close_client %s err: %s' % (client_address, err))
-    def __response_client(self, fd, content):
-        global g_msg_end_flag
-        content += g_msg_end_flag
-        try:
-            client_socket, client_address = self.m_client_dict[fd]
-            client_socket.send(content)
-            log_info('%s --> %s' % (content, client_address))
-        except Exception, err:
-            log_error('send to %s err: %s' % (client_address, err))
     def __response_fail(self, fd, msg):
-        self.__response_client(fd, 'fail: %s' % msg)
+        if not self.m_client_dict.get(fd):
+            return
+        client_socket, client_address = self.m_client_dict[fd]
+        serv_response_client_msg(False, msg, client_socket, client_address)
     def __response_success(self, fd, msg):
-        self.__response_client(fd, 'success: %s' % msg)
-    def __decode_client_msg(self, rcv_msg):
-        '''example: start /home/yanyong python tmp.py args'''
-        str_val = my_strip(rcv_msg)
-        cmd_lst = my_split(str_val, ' ')
-        flag = None
-        pid  = None
-        proc_dir = None
-        cmd_str = None
-        if len(cmd_lst) >=2 and cmd_lst[1].isdigit():
-            flag     = cmd_lst[0]
-            pid      = int(cmd_lst[1])
-        elif len(cmd_lst) > 2:
-            flag     = cmd_lst[0]
-            proc_dir = cmd_lst[1]
-            cmd_str  = cmd_lst[2:]
-        return flag, pid, proc_dir, ' '.join(cmd_str)
+        if not self.m_client_dict.get(fd):
+            return
+        client_socket, client_address = self.m_client_dict[fd]
+        serv_response_client_msg(True, msg, client_socket, client_address)
     def __handle_network_read(self, fd):
         if fd == self.m_server_socket.fileno():
             try:            
@@ -350,23 +331,23 @@ class Task(object):
             log_error('Read exception from %s:%s %s' % (client_address[0], client_address[1], err))
             self.__close_client(fd)
             return
-        flag, pid, proc_dir, cmd_str = self.__decode_client_msg(rcv_data)
+        flag, pid, proc_dir, cmd_str = serv_decode_client_msg(rcv_data)
         if flag is None:
             self.__response_fail(fd, 'invalid arguments format: %s.' % rcv_data)
             self.__close_client(fd)
             return
         success = False
         msg     = ''
-        if flag == 'start':
+        if flag == definition.G_START_ACTION:
             msg = '%s %s in directory %s' % (flag, cmd_str, proc_dir)
             success = self.start_process(proc_dir, cmd_str)
-        elif flag == 'stop' or flag == 'kill':
+        elif flag == definition.G_STOP_ACTION or flag == definition.G_KILL_ACTION:
             msg = '%s %s in directory %s' % (flag, cmd_str, proc_dir)
             sig_val = signal.SIGTERM
-            if flag == 'kill':
+            if flag == definition.G_KILL_ACTION:
                 sig_val = signal.SIGKILL
             success = self.terminate_process(pid, proc_dir, cmd_str, sig_val)
-        elif flag == 'pstatus':
+        elif flag == definition.G_PSTATUS_ACTION:
             msg = self.proc_status(pid, proc_dir, cmd_str)
             if msg is None:
                 success = False
@@ -382,13 +363,15 @@ class Task(object):
             self.__response_success(fd, msg)
     def mail_runtine(self):
         mail_time = 0
-        while not self.m_exit:
+        while True:
             cur_time = time.time()
             if self.m_mail_queue.qsize() > 0 and mail_time + self.m_cfg_manager.mail_interval_sec < cur_time:
                 mail_info = self.m_mail_queue.get()
                 mail_time = cur_time
                 send_mail(mail_info[0], mail_info[1], mail_info[2], mail_info[3], \
                     mail_info[4], mail_info[5], mail_info[6], mail_info[7]) 
+            if self.m_exit:
+                break
             time.sleep(1)
     def log_runtine(self):
         while not self.m_exit:
@@ -413,9 +396,10 @@ class Task(object):
         cmd.handle_close()
         '''加入到重启列表中'''
         if cmd.m_active_quit and cmd.m_cfg.quit_restart:
+            cmd.m_stop_time = time.time()
             log_info('%s stopped, wait restart.' % cmd)
             self.m_restart_cmd_lst.append(cmd)
-        if not cmd.m_active_quit or not cmd.m_cfg.quit_restart:
+        else:
             self.__dump_cmd()
     def __handle_stdout(self, fd):
         """ handle Popen return stdout"""

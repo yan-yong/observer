@@ -99,8 +99,8 @@ class ConfigManager:
             config.monitor_quit = self.cf.getboolean(sec_name, 'monitor_quit')
         if self.cf.has_option(sec_name, 'quit_restart'):
             config.quit_restart = self.cf.getboolean(sec_name, 'quit_restart') 
-        if self.cf.has_option('common', 'restart_wait_sec'):
-            self.restart_wait_sec = self.cf.getint('common', 'restart_wait_sec')
+        if self.cf.has_option(sec_name, 'restart_wait_sec'):
+            self.restart_wait_sec = self.cf.getint(sec_name, 'restart_wait_sec')
         '''mail option'''
         if self.cf.has_option(sec_name, 'mail_from'):
             config.mail_from_name = self.cf.get(sec_name, 'mail_from')        
@@ -194,14 +194,6 @@ def init_log_file_name(log_dir, cmd_id):
     log_dir = log_dir.strip('/')
     return "%s/%s.std" % (log_dir, cmd_id), "%s/%s.err" % (log_dir, cmd_id)
 
-def init_log_file(log_dir, cmd_id):
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    std_file_name, err_file_name = init_log_file_name(log_dir, cmd_id)
-    std_file = open(std_file_name, 'a')
-    err_file = open(err_file_name, 'a')
-    return std_file, err_file
-
 def log_file_name(log_dir, cmd_id):
     log_dir = log_dir.strip('/')
     if not os.path.exists(log_dir):
@@ -210,15 +202,6 @@ def log_file_name(log_dir, cmd_id):
     std_file_name = '%s/%s_%s.std' % (log_dir, cmd_id, time_str)
     err_file_name = '%s/%s_%s.err' % (log_dir, cmd_id, time_str)
     return std_file_name, err_file_name 
-
-'''create log file'''
-def log_file(log_dir, cmd_id):
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    std_file_name, err_file_name = log_file_name(log_dir, cmd_id)
-    std_file = open(std_file_name, 'a')
-    err_file = open(err_file_name, 'a')
-    return std_file, err_file  
 
 '''obtain command id'''
 def get_cmd_id(cmd_str):
@@ -282,7 +265,11 @@ def send_mail(to_list, sub, content, main_server, mail_user, mail_pass, mail_pos
     msg['Subject'] = sub 
     msg['From'] = me
     msg['To'] = ';'.join(to_list)
-    log_info('start mail to %s ...' % str(to_list))
+    if len(to_list) > 0:
+        log_info('start mail to %s ...\n' % str(to_list))
+    else:
+        log_error('send mail fail: have no receiver.\n')
+        return
     try:
         s = smtplib.SMTP(timeout = 10)
         s.connect(main_server)
@@ -295,15 +282,27 @@ def send_mail(to_list, sub, content, main_server, mail_user, mail_pass, mail_pos
         log_error("mail to %s exception: %s" % (str(to_list), e)) 
         return False
 
-g_msg_end_flag = ';'
+class definition:
+    G_MSG_END_FLAG   = ';'
+    G_SUCCESS_FLAG   = 'success'
+    G_FAIL_FLAG      = 'fail'
+
+    G_START_ACTION   = 'start'
+    G_STOP_ACTION    = 'stop'
+    G_KILL_ACTION    = 'kill'
+    G_PSTATUS_ACTION = 'pstatus'
+
+    G_RUN_STATUS     = 'running'
+    G_STOP_STATUS    = 'stopped'
+
+'''client 端的函数'''
 def client_send_and_recv(client_socket, send_cont):
-    global g_msg_end_flag
     recv_content = ''
     try:
         client_socket.send(send_cont)
         while True:
             cur_content = client_socket.recv(4096)
-            idx = cur_content.rfind(g_msg_end_flag)
+            idx = cur_content.rfind(definition.G_MSG_END_FLAG)
             if idx >= 0:
                 cur_content = cur_content[0:idx]
             recv_content += cur_content
@@ -321,34 +320,39 @@ def handle_server_response(client_socket, recv_content):
     if len(cols) == 0:
         log_error('invalid response: %s' % recv_content)
         sys.exit(1)
-    if cols[0] == 'success':
-        return True, ':'.join(cols[1:])
-    elif cols[0] == 'fail':
-        return False, ':'.join(cols[1:])
+    if cols[0] == definition.G_SUCCESS_FLAG:
+        return True, ' '.join(cols[1:])
+    elif cols[0] == definition.G_FAIL_FLAG:
+        return False, ' '.join(cols[1:])
     else:
         log_error('invalid response flag: %s' % recv_content)
         sys.exit(1)
 
 def client_start_cmd(client_socket, cmd_str):
-    send_cont = 'start %s %s' % (os.getcwd(), cmd_str) 
+    send_cont = '%s: %s %s' % (definition.G_START_ACTION, os.getcwd(), cmd_str) 
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content) 
 
-def client_stop_cmd(client_socket, pid, cmd_str):
-    send_cont = 'stop %s' % pid
-    if pid is None:
-        send_cont = 'stop %s %s' % (os.getcwd(), cmd_str) 
+def client_stop_cmd(client_socket, cmd_str):
+    '''进程号'''
+    if cmd_str.isdigit():
+        send_cont = '%s: %s' % (definition.G_STOP_ACTION, cmd_str)
+    else:
+        send_cont = '%s: %s %s' % (definition.G_STOP_ACTION, os.getcwd(), cmd_str) 
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content)
 
-def client_cmd_status(client_socket, pid, cmd_str):
-    send_cont = 'pstatus %s' % pid
-    if pid is None:
-        send_cont = 'pstatus %s %s' % (os.getcwd(), cmd_str) 
+def client_cmd_status(client_socket, cmd_str):
+    if cmd_str.isdigit():
+        send_cont = '%s: %s' % (definition.G_PSTATUS_ACTION, cmd_str)
+    else:
+        send_cont = '%s: %s %s' % (definition.G_PSTATUS_ACTION, os.getcwd(), cmd_str) 
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content)
 
-def obtain_client_socket_cmd_name():
+'''可以指定目标server机器的IP和端口: observer_start -h 192.168.1.5 -p 9091'''
+'''否则默认为本机IP和默认端口'''
+def client_socket_cmd_name():
     socket.setdefaulttimeout(10)
     cfg_manager = ConfigManager()
     opts, args = getopt.getopt(sys.argv[1:], "h:p:")
@@ -359,9 +363,45 @@ def obtain_client_socket_cmd_name():
             dst_ip = value
         elif op == '-p':
             dst_port = int(value)
-    cmd_str  = get_observer_cmd(args)
-    if cmd_str is None:
-        sys.exit(1)
-    client_socket = socket.socket(socket.AF_INET,socket.SOCK_STREAM)
+    cmd_str  = None
+    if len(args) > 0 and args[0].isdigit():
+        cmd_str = args[0]
+    else:
+        cmd_str  = get_observer_cmd(args)
+        if cmd_str is None:
+            sys.exit(1)
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((dst_ip, dst_port))
     return client_socket, cmd_str
+
+'''server端的函数'''
+def serv_decode_client_msg(rcv_msg):
+    '''example --> start: /home/yanyong python tmp.py args'''
+    str_val = my_strip(rcv_msg)
+    flag = None
+    pid  = None
+    proc_dir = None
+    cmd_str = None
+    idx = str_val.find(':')
+    if idx < 0:
+        return flag, pid, proc_dir, cmd_str;
+    flag = str_val[0:idx]
+    str_val = str_val[idx + 1: ]
+    cmd_lst = my_split(str_val, ' ')
+    if cmd_lst[0].isdigit():
+        pid      = int(cmd_lst[0])
+        return flag, pid, proc_dir, cmd_str;
+    proc_dir = cmd_lst[0]
+    cmd_str  = cmd_lst[1:]
+    return flag, pid, proc_dir, ' '.join(cmd_str)
+
+def serv_response_client_msg(is_success, msg, client_socket, client_address):
+    flag = definition.G_SUCCESS_FLAG
+    if not is_success:
+        flag = definition.G_FAIL_FLAG
+    content = '%s:%s%s' % (flag, msg, definition.G_MSG_END_FLAG)
+    try:
+        client_socket.send(content)
+        log_info('%s --> %s' % (content, client_address))
+    except Exception, err:
+        log_error('send to %s err: %s' % (client_address, err))
