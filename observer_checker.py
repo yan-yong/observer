@@ -69,10 +69,10 @@ class NewFileChecker(Checker):
         self.m_interval_sec = int(other_cols[1])
         self.m_check_time = 0
     def check(self, buffer):
-        file_lst, file_size = get_file_lst(self.m_pattern, self.m_directory, False)
         cur_time = time.time()
         if self.m_check_time + self.m_interval_sec < cur_time:
             return False
+        file_lst, file_size = get_file_lst(self.m_pattern, self.m_directory, False)
         cnt = 0
         for file in file_lst:
             modify_time = os.path.getmtime(file)
@@ -96,19 +96,26 @@ class LogSizeChecker(Checker):
         file_lst, self.m_cur_size = get_file_lst(self.m_file_pattern, self.m_directory, False)
     def check(self, buffer):
         self.m_cur_size += len(buffer)
-        if self.m_cur_size < self.m_max_size:
+        '''考虑到内存到磁盘可能有4096的缓冲区大小'''
+        if self.m_cur_size < self.m_max_size + 4096:
             return False
         file_lst, file_size = get_file_lst(self.m_file_pattern, self.m_directory, False)
-        while self.m_cur_size > self.m_max_size and len(file_lst) >= 2:
+        '''文件数目过少, 避免重复探测'''
+        if len(file_lst) <= 2:
+            self.m_cur_size = 0
+            return False
+        file_lst.sort() 
+        while file_size > self.m_max_size and len(file_lst) > 2:
             try:
+                file_size -= os.path.getsize(file_lst[0])
                 os.remove(file_lst[0])
                 log_info('removed log file %s' % file_lst[0]) 
-                self.m_cur_size -= os.path.getsize(file_lst[0])
                 del(file_lst[0])
             except Exception, err:
                 self.m_err_msg = err
                 log_error('LogSizeChecker triggered: %s' % err)
                 return True
+        self.m_cur_size = file_size;
         return False
     def checker_subject(self):
         return "LogSizeChecker"

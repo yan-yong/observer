@@ -206,7 +206,7 @@ def log_file_name(log_dir, cmd_id):
     log_dir = log_dir.strip('/')
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-    time_str = time.strftime('%Y-%m-%d_%H', time.localtime(time.time() - 60*60))
+    time_str = time.strftime('%Y-%m-%d_%H', time.localtime(time.time()))
     std_file_name = '%s/%s_%s.std' % (log_dir, cmd_id, time_str)
     err_file_name = '%s/%s_%s.err' % (log_dir, cmd_id, time_str)
     return std_file_name, err_file_name 
