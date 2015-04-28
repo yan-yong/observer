@@ -342,6 +342,15 @@ def client_stop_cmd(client_socket, cmd_str):
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content)
 
+def client_kill_cmd(client_socket, cmd_str):
+    '''进程号'''
+    if cmd_str.isdigit():
+        send_cont = '%s: %s' % (definition.G_KILL_ACTION, cmd_str)
+    else:
+        send_cont = '%s: %s %s' % (definition.G_KILL_ACTION, os.getcwd(), cmd_str) 
+    recv_content = client_send_and_recv(client_socket, send_cont)
+    return handle_server_response(client_socket, recv_content)
+
 def client_cmd_status(client_socket, cmd_str):
     if cmd_str.isdigit():
         send_cont = '%s: %s' % (definition.G_PSTATUS_ACTION, cmd_str)
