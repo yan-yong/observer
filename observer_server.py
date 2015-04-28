@@ -353,7 +353,7 @@ class Task(object):
                 success = False
             else:
                 success = True
-        elif flag == 'list':
+        elif flag == definition.G_LIST_ACTION:
             msg = self.all_status()
             success = True
         if not success: 

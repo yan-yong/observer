@@ -291,6 +291,7 @@ class definition:
     G_STOP_ACTION    = 'stop'
     G_KILL_ACTION    = 'kill'
     G_PSTATUS_ACTION = 'pstatus'
+    G_LIST_ACTION    = 'list'
 
     G_RUN_STATUS     = 'running'
     G_STOP_STATUS    = 'stopped'
@@ -351,7 +352,7 @@ def client_kill_cmd(client_socket, cmd_str):
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content)
 
-def client_cmd_status(client_socket, cmd_str):
+def client_status_cmd(client_socket, cmd_str):
     if cmd_str.isdigit():
         send_cont = '%s: %s' % (definition.G_PSTATUS_ACTION, cmd_str)
     else:
@@ -359,6 +360,11 @@ def client_cmd_status(client_socket, cmd_str):
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content)
 
+def client_list_cmd(client_socket, cmd_str):
+    send_cont = '%s: %s %s' % (definition.G_LIST_ACTION, os.getcwd(), cmd_str) 
+    recv_content = client_send_and_recv(client_socket, send_cont)
+    return handle_server_response(client_socket, recv_content)
+ 
 '''可以指定目标server机器的IP和端口: observer_start -h 192.168.1.5 -p 9091'''
 '''否则默认为本机IP和默认端口'''
 def client_socket_cmd_name():

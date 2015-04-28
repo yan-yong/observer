@@ -12,7 +12,7 @@ def observer_start():
     else:
         log_info('start success.')
     time.sleep(1)
-    ret, msg = client_cmd_status(client_socket, cmd_str)
+    ret, msg = client_status_cmd(client_socket, cmd_str)
     if not ret or msg == definition.G_STOP_STATUS:
         log_info('notice: the process is stopped.')
     else:
