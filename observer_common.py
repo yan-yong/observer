@@ -36,7 +36,7 @@ class Config:
         self.monitor_quit = False
         self.quit_restart = False
         self.restart_wait_sec = 10
-        self.invalid_quit_mail_msg = 'Invalid Quit'
+        self.invalid_quit_mail_msg = 'Process Quit'
         '''mail option'''
         self.mail_host = 'smtp.163.com'
         self.mail_from_name = 'Founder Observer'
@@ -53,11 +53,6 @@ class ConfigManager:
         self.listen_port = 9090
         if self.cf.has_option('common', 'listen_port'):
             self.listen_port = self.cf.getint('common', 'listen_port')
-        self.work_process_num = 2
-        '''
-        if self.cf.has_option('common', 'work_process_num'):
-            self.work_process_num = self.cf.getint('common', 'work_process_num')
-        '''
         self.work_dir = '/var/observer'
         if self.cf.has_option('common', 'work_dir'):
             self.work_dir = self.cf.get('common', 'work_dir')
@@ -76,6 +71,10 @@ class ConfigManager:
         self.mail_interval_sec = 60 
         if self.cf.has_option('common', 'mail_interval_sec'):
             self.mail_interval_sec = self.cf.getint('common', 'mail_interval_sec')
+        self.mail_max_queue_num = 2
+        if self.cf.has_option('common', 'mail_max_queue_num'):
+            self.mail_max_queue_num = self.cf.getint('common', 'mail_max_queue_num')
+        assert(self.mail_max_queue_num > 0)
         self.select_timeout = 2
         if self.cf.has_option('common', 'select_timeout'):
             self.select_timeout = self.cf.getint('common', 'select_timeout')

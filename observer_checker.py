@@ -70,7 +70,7 @@ class NewFileChecker(Checker):
         self.m_check_time = 0
     def check(self, buffer):
         cur_time = time.time()
-        if self.m_check_time + self.m_interval_sec < cur_time:
+        if self.m_check_time + self.m_interval_sec > cur_time:
             return False
         file_lst, file_size = get_file_lst(self.m_pattern, self.m_directory, False)
         cnt = 0

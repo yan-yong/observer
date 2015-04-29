@@ -366,6 +366,10 @@ class Task(object):
         while True:
             cur_time = time.time()
             if self.m_mail_queue.qsize() > 0 and mail_time + self.m_cfg_manager.mail_interval_sec < cur_time:
+                mail_info = None
+                '''取最新的mail_max_queue_num个报警信息'''
+                while self.m_mail_queue.qsize() > self.m_cfg_manager.mail_max_queue_num:
+                    mail_info = self.m_mail_queue.get()
                 mail_info = self.m_mail_queue.get()
                 mail_time = cur_time
                 send_mail(mail_info[0], mail_info[1], mail_info[2], mail_info[3], \
@@ -539,7 +543,6 @@ if __name__ == '__main__':
         sys.stdout = log_fd
         sys.stdout.write('\n\n')
         log_info('OBSERVER START')
-        #log_fd.close()
     except:
         log_error('cannot create observer log file: %s' % observer_log_path)
         sys.exit(1)
