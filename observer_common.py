@@ -89,12 +89,14 @@ class ConfigManager:
         if self.cf.has_option(sec_name, 'log_dir'):
             config.log_dir = self.cf.get(sec_name, 'log_dir').strip('/')
         if self.cf.has_option(sec_name, 'monitor_keyword'):
-            for item_val in self.cf.get(sec_name, 'monitor_keyword').split(';'):
+            item_lst = my_split(self.cf.get(sec_name, 'monitor_keyword'), ';')
+            for item_val in item_lst:
                 item_val = my_strip(item_val)
                 if len(item_val) > 0:
                     config.monitor_keyword_list.append(item_val)
         if self.cf.has_option(sec_name, 'monitor_newfile'):
-            for item_val in self.cf.get(sec_name, 'monitor_newfile').split(';'):
+            item_lst = my_split(self.cf.get(sec_name, 'monitor_newfile'), ';')
+            for item_val in item_lst:
                 item_val = my_strip(item_val)
                 if len(item_val) > 0:
                     config.monitor_newfile_list.append(item_val)
@@ -116,15 +118,14 @@ class ConfigManager:
         if self.cf.has_option(sec_name, 'mail_postfix'):
             config.mail_postfix = self.cf.get(sec_name, 'mail_postfix')
         if self.cf.has_option(sec_name, 'mail_to'):
-            config.mail_to_list = self.cf.get(sec_name, 'mail_to')
-
-        if self.cf.has_option(sec_name, 'mail_to'):
-            for item in self.cf.get(sec_name, 'mail_to').split(';'):
+            mail_to_str = self.cf.get(sec_name, 'mail_to')
+            item_lst = my_split(mail_to_str, ';')
+            for item in item_lst:
                 if item.find('@') <= 0:
                     log_error('skip invalid mail_to address: %s' % item)
                     continue
-            item = item.strip('\n').strip('\r').strip(' ')
-            config.mail_to_list.append(item)
+                item = item.strip('\n').strip('\r').strip(' ')
+                config.mail_to_list.append(item)
         return True 
     def get_cmd_config(self, cmd_id):
         cmd_cfg = copy.deepcopy(self.base_cfg)
@@ -393,7 +394,11 @@ def client_socket_cmd_name():
         #if cmd_str is None:
         #    sys.exit(1)
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect((dst_ip, dst_port))
+    try:
+        client_socket.connect((dst_ip, dst_port))
+    except:
+        log_error('connect to %s:%d error.' % (dst_ip, dst_port))
+        sys.exit(1)
     return client_socket, cmd_str
 
 '''server端的函数'''
