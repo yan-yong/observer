@@ -333,13 +333,20 @@ def handle_server_response(client_socket, recv_content):
         sys.exit(1)
 
 def client_start_cmd(client_socket, cmd_str):
-    assert(cmd_str is not None and not cmd_str.isdigit())
+    if cmd_str is None:
+        log_error('None command')
+        sys.exit(1)
+    if cmd_str.isdigit():
+        log_error('Invalid command: %s' % cmd_str)
+        sys.exit(1)
     send_cont = '%s: %s %s' % (definition.G_START_ACTION, os.getcwd(), cmd_str) 
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content) 
 
 def client_stop_cmd(client_socket, cmd_str):
-    assert(cmd_str is not None)
+    if cmd_str is None:
+        log_error('None command')
+        sys.exit(1)
     '''进程号'''
     if cmd_str.isdigit():
         send_cont = '%s: %s' % (definition.G_STOP_ACTION, cmd_str)
@@ -349,7 +356,9 @@ def client_stop_cmd(client_socket, cmd_str):
     return handle_server_response(client_socket, recv_content)
 
 def client_kill_cmd(client_socket, cmd_str):
-    assert(cmd_str is not None)
+    if cmd_str is None:
+        log_error('None command')
+        sys.exit(1)
     '''进程号'''
     if cmd_str.isdigit():
         send_cont = '%s: %s' % (definition.G_KILL_ACTION, cmd_str)
@@ -359,7 +368,9 @@ def client_kill_cmd(client_socket, cmd_str):
     return handle_server_response(client_socket, recv_content)
 
 def client_status_cmd(client_socket, cmd_str):
-    assert(cmd_str is not None)
+    if cmd_str is None:
+        log_error('None command')
+        sys.exit(1)
     if cmd_str.isdigit():
         send_cont = '%s: %s' % (definition.G_PSTATUS_ACTION, cmd_str)
     else:
