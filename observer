@@ -1,0 +1,89 @@
+#!/usr/bin/python
+# chkconfig: 345 85 15
+# description: process observer 
+import sys, os, subprocess, time, platform, ConfigParser, fcntl, signal, traceback, re
+from observer_common import *
+from threading import Thread
+
+def get_pid(pid_file):
+    pid = -1
+    pid_name = ''
+    if os.path.exists(pid_file):
+        pid_name = open(pid_file, 'r').readline().strip('\n').strip('\r')
+    if len(pid_name) > 0:
+        try:
+            pid = int(pid_name)
+            if not process_exist(str(pid)):
+                pid = -1
+        except Excepiton, err:
+            pid = -1
+    return pid
+
+def remove_file(pid_file):
+    try:
+       if os.path.exists(pid_file):
+           os.remove(pid_file)
+    except Exception, err:
+           pass
+
+def service_help():
+    sys.stderr.write('[observer_service] usage: observer_service start|stop|restart|status\n')
+    sys.exit(1)
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        service_help()
+    action = sys.argv[1]
+    cfg_manager  = ConfigManager()
+    observer_dir = cfg_manager.work_dir
+    if not os.path.exists(observer_dir):
+        os.makedirs(observer_dir)
+    pid_file_path = '%s/%s' % (cfg_manager.work_dir.rstrip('/'), cfg_manager.pid_file)
+    pid = get_pid(pid_file_path)
+    process_record_path  = '%s/%s' % (cfg_manager.work_dir.rstrip('/'), cfg_manager.record_file)
+
+    invalid_action = True
+    if action == 'status':
+        invalid_action = False 
+        if pid < 0:
+            sys.stdout.write('[observer_service] status stopped.\n')
+        else:
+            sys.stdout.write('[observer_service] status running.\n')
+    if action == 'stop' or action == 'restart':
+        invalid_action = False 
+        remove_file(pid_file_path)
+        if pid > 0:
+            try:
+                kill_process(pid, signal.SIGTERM)
+            except:
+                pass
+            while process_exist(pid):
+                time.sleep(0.1)
+            sys.stdout.write('[observer_service] stop success.\n')
+            pid = -1
+        else:
+            sys.stdout.write('[observer_service] already stopped.\n')
+    if action == 'start' or action == 'restart':
+        invalid_action = False 
+        if pid > 0:
+            sys.stderr.write('[observer_service] failed: observer already started.\n')
+            sys.exit(1)
+        p = subprocess.Popen('observer_server'.split(' '), preexec_fn=os.setsid, close_fds=True)
+        time.sleep(1)
+        if not process_exist(p.pid):
+            sys.stderr.write('[observer_service] start failed.\n')
+            sys.exit(1)
+        pid_file = open(pid_file_path, 'w')
+        pid_file.write('%d' % p.pid)
+        pid_file.close()
+        sys.stdout.write('[observer_service] start success.\n')
+    if action == 'list':
+        invalid_action = False 
+        lines = []
+        if os.path.exists(process_record_path):
+            lines = open(process_record_path, 'r').readlines()
+            sys.stdout.write('[observer_service] observing %d process:\n' % len(lines))
+            sys.stdout.write('%s' % '\n'.join(lines))
+    if invalid_action:
+        service_help()
+    sys.exit(0)
