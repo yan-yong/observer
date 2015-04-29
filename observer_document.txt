@@ -1,0 +1,61 @@
+                  运维服务工具— observer
+
+一、功能描述
+1. 日志切割
+   应用程序只要将日志输出到标准输出和错误输出，使用observer启动，即可实现日志托管，自动按小时切日志；
+2. 日志大小管理
+   当日志文件总大小超过配置时，删除最老的日志；
+3. 进程监控与管理
+   a) 对于daemon任务，为防止程序跑崩掉，可以设置程序退出时自动重启；
+   b) 对于task任务，可以设置重启间隔时间，实现类似于crontab的功能；
+   c) 当机器重启后，自动重启所有监控进程；
+   d) 进程退出时，可以发送报警；这个可以实现：daemon退出时（core），发报警消息；一个task跑完了，发通知消息告诉用户；
+4. 日志关键词监控
+   当日志配置的关键词在一定时间内超过指定数目时，发报警消息；
+5. 分布式进程管理
+   可以启、停局域网内任何机器的任何进程
+6. 数据更新监控
+   监控进程产生数据的更新请求，在一个时间段内，当更新数据少于配置值时，可以发消息报警
+
+二、安装
+Github地址：https://yan-yong@github.com/yan-yong/observer.git
+sh install.sh，请确保执行安装时有root权限。
+
+三、使用说明
+1个service 和5个命令
+【1个service】
+  符合系统标准服务接口，机器重启时会自动启动该服务
+  service  observer start:   启动observer服务
+  service  observer stop：  停止observer服务
+  service  observer status： observer服务状态
+  service  observer list：    observer当前监控的程序列表
+  service  observer restart:   observer服务重启
+
+【5个命令】
+ 操作进程靠两种方式来标示一个进程：
+ ① 当前目录 + 进程名：当使用下面所列的observer_start、observer_stop、observer_kill等这些操作时会把当前目录传过去，以用于标示该操作进程对象；在不同的目录执行observer_start表示操作的进程时不一样的；所以在执行这些命令时，一定要注意所处的目录！！！
+当observer_start python test.py后，必须在同一个目录下，执行 observer_stop python test.py才能表示stop上面起的那个进程；
+在同一个目录下，不能observer_start两个名字相同的命令，服务端会报错，如果一定要start同一个命令，另一个命令建议建软链换个名字。
+ ② 进程号：直接操作该pid的进程
+
+ observer_start:      
+ 启动 && 添加进程到监控列表中，如observer_start python tmp.py
+ 用observer_start启动的进程必须用observer_stop或observer_kill停止，否则会当异常，具体异常行为会由配置文件指定；
+
+ observer_stop：
+ 停止进程，并将进程从监控列表中移除，可以使用进程名，也可以使用进程号，如observer_stop python tmp.py，或者是observer_stop pid
+
+ observer_kill:
+ 功能同observer_stop，不过发的是kill -9信号，强杀进程
+
+ observer_status：
+ 获得指定进程的状态，可以使用进程名，也可以使用进程号。
+
+ observer_list:
+ 获得监控的进程列表
+
+ 以上的5条命令，都支持网络分布式操作，可以操作网络上部署了observer的任何一台机器，使用-h 和-p操作指定ip和端口，不指定默认为本机
+
+四、配置文件说明
+ install后配置文件会默认防止到/etc/op_observer.cfg
+ 具体配置文件描述见op_observer.cfg
