@@ -33,9 +33,10 @@ sh install.sh，请确保执行安装时有root权限。
 
 【5个命令】
  操作进程靠两种方式来标示一个进程：
- ① 当前目录 + 进程名：当使用下面所列的observer_start、observer_stop、observer_kill等这些操作时会把当前目录传过去，以用于标示该操作进程对象；在不同的目录执行observer_start表示操作的进程时不一样的；所以在执行这些命令时，一定要注意所处的目录！！！
-当observer_start python test.py后，必须在同一个目录下，执行 observer_stop python test.py才能表示stop上面起的那个进程；
-在同一个目录下，不能observer_start两个名字相同的命令，服务端会报错，如果一定要start同一个命令，另一个命令建议建软链换个名字。
+ ① 当前目录 + 进程名：当使用下面所列的observer_start、observer_stop、observer_kill等这些操作时会把当前目录传过去，
+   以用于标示该操作进程对象；在不同的目录执行observer_start表示操作的进程时不一样的；所以在执行这些命令时，一定要注意所处的目录！！！
+   当observer_start python test.py后，必须在同一个目录下，执行 observer_stop python test.py才能表示stop上面起的那个进程；
+   在同一个目录下，不能observer_start两个名字相同的命令，服务端会报错，如果一定要start同一个命令，另一个命令建议建软链换个名字。
  ② 进程号：直接操作该pid的进程
 
  observer_start:      
