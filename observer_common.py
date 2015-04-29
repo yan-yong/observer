@@ -46,7 +46,7 @@ class Config:
         self.mail_to_list = []
 
 class ConfigManager:
-    def __init__(self, config_file = '/etc/observer_config'):
+    def __init__(self, config_file = '/etc/op_observer.cfg'):
         self.config_file = config_file
         self.cf = ConfigParser.ConfigParser()
         self.cf.read(config_file)
@@ -61,15 +61,18 @@ class ConfigManager:
         self.work_dir = '/var/observer'
         if self.cf.has_option('common', 'work_dir'):
             self.work_dir = self.cf.get('common', 'work_dir')
+        self.observer_log = 'observer.log'
+        if self.cf.has_option('common', 'observer_log'):
+            self.observer_log = self.cf.get('common', 'observer_log')
         self.record_file = 'process.dat'
         if self.cf.has_option('common', 'record_file'):
             self.record_file = self.cf.get('common', 'record_file')
+        self.pid_file = 'pid.dat'
+        if self.cf.has_option('common', 'pid_file'):
+            self.pid_file = self.cf.get('common', 'pid_file')
         self.socket_timeout = 10
         if self.cf.has_option('common', 'socket_timeout_sec'):
             self.socket_timeout = self.cf.getint('common', 'socket_timeout_sec')
-        self.service_log_file = 'service_log'
-        if self.cf.has_option('common', 'service_log'):
-            self.service_log_file = self.cf.get('common', 'service_log')
         self.mail_interval_sec = 60 
         if self.cf.has_option('common', 'mail_interval_sec'):
             self.mail_interval_sec = self.cf.getint('common', 'mail_interval_sec')
@@ -330,11 +333,13 @@ def handle_server_response(client_socket, recv_content):
         sys.exit(1)
 
 def client_start_cmd(client_socket, cmd_str):
+    assert(cmd_str is not None and not cmd_str.isdigit())
     send_cont = '%s: %s %s' % (definition.G_START_ACTION, os.getcwd(), cmd_str) 
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content) 
 
 def client_stop_cmd(client_socket, cmd_str):
+    assert(cmd_str is not None)
     '''进程号'''
     if cmd_str.isdigit():
         send_cont = '%s: %s' % (definition.G_STOP_ACTION, cmd_str)
@@ -344,6 +349,7 @@ def client_stop_cmd(client_socket, cmd_str):
     return handle_server_response(client_socket, recv_content)
 
 def client_kill_cmd(client_socket, cmd_str):
+    assert(cmd_str is not None)
     '''进程号'''
     if cmd_str.isdigit():
         send_cont = '%s: %s' % (definition.G_KILL_ACTION, cmd_str)
@@ -353,6 +359,7 @@ def client_kill_cmd(client_socket, cmd_str):
     return handle_server_response(client_socket, recv_content)
 
 def client_status_cmd(client_socket, cmd_str):
+    assert(cmd_str is not None)
     if cmd_str.isdigit():
         send_cont = '%s: %s' % (definition.G_PSTATUS_ACTION, cmd_str)
     else:
@@ -360,8 +367,8 @@ def client_status_cmd(client_socket, cmd_str):
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content)
 
-def client_list_cmd(client_socket, cmd_str):
-    send_cont = '%s: %s %s' % (definition.G_LIST_ACTION, os.getcwd(), cmd_str) 
+def client_list_cmd(client_socket):
+    send_cont = '%s: ' % (definition.G_LIST_ACTION) 
     recv_content = client_send_and_recv(client_socket, send_cont)
     return handle_server_response(client_socket, recv_content)
  
@@ -383,8 +390,8 @@ def client_socket_cmd_name():
         cmd_str = args[0]
     else:
         cmd_str  = get_observer_cmd(args)
-        if cmd_str is None:
-            sys.exit(1)
+        #if cmd_str is None:
+        #    sys.exit(1)
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect((dst_ip, dst_port))
     return client_socket, cmd_str
