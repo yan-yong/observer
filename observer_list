@@ -1,0 +1,15 @@
+#!/usr/bin/python
+import sys, os, subprocess, time, platform, ConfigParser, fcntl, thread, getopt
+from observer_common import *
+
+def observer_list():
+    client_socket, cmd_str = client_socket_cmd_name() 
+    ret, msg = client_list_cmd(client_socket)
+    if not ret:
+        log_error('%s' % msg)
+        client_socket.close()
+        sys.exit(1)
+    log_info('observer list:\n %s' % msg)
+
+if __name__ == '__main__':
+    observer_list()
