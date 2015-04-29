@@ -79,7 +79,10 @@ class NewFileChecker(Checker):
             if modify_time + self.m_interval_sec > cur_time:
                 cnt += 1
         self.m_check_time = cur_time
-        return cnt < self.m_min_file_cnt
+        ret = cnt < self.m_min_file_cnt
+        if ret:
+            log_info('NewFileChecker triggered.')
+        return ret 
     def checker_subject(self):
         return "NewFileChecker"
     def checker_msg(self):
