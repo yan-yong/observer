@@ -58,5 +58,5 @@ sh install.sh，请确保执行安装时有root权限。
  以上的5条命令，都支持网络分布式操作，可以操作网络上部署了observer的任何一台机器，使用-h 和-p操作指定ip和端口，不指定默认为本机
 
 四、配置文件说明
- install后配置文件会默认防止到/etc/op_observer.cfg
+ install后配置文件会默认放置到/etc/op_observer.cfg
  具体配置文件描述见op_observer.cfg
