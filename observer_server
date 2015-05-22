@@ -240,7 +240,18 @@ class Task(object):
         self.m_mail_thd = None
         self.m_exit = False
         self.m_client_dict = {}
+        self.m_last_reload_config_time = time.time()
         self.__load_cmd()
+    def __check_reload_config(self):
+        cur_time = time.time()
+        if self.m_last_reload_config_time + self.m_cfg_manager.reload_config_interval_sec < cur_time:
+            self.m_cfg_manager.reload_config()
+            for cmd_obj in self.m_cmd_dict.values():
+                cmd_obj.m_cfg = self.m_cfg_manager.get_cmd_config(cmd_obj.m_cmd_id)
+            for cmd_obj in self.m_restart_cmd_lst:
+                cmd_obj.m_cfg = self.m_cfg_manager.get_cmd_config(cmd_obj.m_cmd_id)
+            self.m_last_reload_config_time = cur_time
+            log_info('reload config success.')
     def __find_pid(self, pid):
         for cmd_obj in self.m_cmd_dict.values():
             if cmd_obj.process_id() == pid:
@@ -382,6 +393,7 @@ class Task(object):
             try:
                 self.m_io_map.poll(self.m_cfg_manager.select_timeout)
                 self.__check_restart()
+                self.__check_reload_config()
             except KeyboardInterrupt:
             # This exception handler doesn't print out any fancy status
             # information--it just stops.

@@ -6,11 +6,22 @@ def observer_stop():
     client_socket, cmd_str = client_socket_cmd_name() 
     ret, msg = client_stop_cmd(client_socket, cmd_str)
     if not ret:
-        log_error('%s' % msg)
+        log_error('observer_stop error %s' % msg)
         client_socket.close()
         sys.exit(1)
-    else:
-        log_info('stop success.')
+    time.sleep(1)
+    while True:
+        try:
+            ret, msg = client_status_cmd(client_socket, cmd_str)
+            if not ret or msg == definition.G_STOP_STATUS:
+                log_info('stop success.')
+                break
+            log_info('waiting process stop ...')
+            time.sleep(0.5)
+        except Exception, err:
+            log_error('observer_stop error %s' % err)
+            sys.exit(1)
+    client_socket.close()
 
 if __name__ == '__main__':
     observer_stop()

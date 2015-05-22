@@ -48,38 +48,8 @@ class Config:
 class ConfigManager:
     def __init__(self, config_file = '/etc/op_observer.cfg'):
         self.config_file = config_file
-        self.cf = ConfigParser.ConfigParser()
-        self.cf.read(config_file)
-        self.listen_port = 9090
-        if self.cf.has_option('common', 'listen_port'):
-            self.listen_port = self.cf.getint('common', 'listen_port')
-        self.work_dir = '/var/observer'
-        if self.cf.has_option('common', 'work_dir'):
-            self.work_dir = self.cf.get('common', 'work_dir')
-        self.observer_log = 'observer.log'
-        if self.cf.has_option('common', 'observer_log'):
-            self.observer_log = self.cf.get('common', 'observer_log')
-        self.record_file = 'process.dat'
-        if self.cf.has_option('common', 'record_file'):
-            self.record_file = self.cf.get('common', 'record_file')
-        self.pid_file = 'pid.dat'
-        if self.cf.has_option('common', 'pid_file'):
-            self.pid_file = self.cf.get('common', 'pid_file')
-        self.socket_timeout = 10
-        if self.cf.has_option('common', 'socket_timeout_sec'):
-            self.socket_timeout = self.cf.getint('common', 'socket_timeout_sec')
-        self.mail_interval_sec = 60 
-        if self.cf.has_option('common', 'mail_interval_sec'):
-            self.mail_interval_sec = self.cf.getint('common', 'mail_interval_sec')
-        self.mail_max_queue_num = 2
-        if self.cf.has_option('common', 'mail_max_queue_num'):
-            self.mail_max_queue_num = self.cf.getint('common', 'mail_max_queue_num')
-        assert(self.mail_max_queue_num > 0)
-        self.select_timeout = 2
-        if self.cf.has_option('common', 'select_timeout'):
-            self.select_timeout = self.cf.getint('common', 'select_timeout')
-        self.base_cfg = Config()
-        self.__load_config('base', self.base_cfg)
+        self.cf = None
+        self.reload_config()
     def __load_config(self, sec_name, config):
         if not self.cf.has_section(sec_name):
             return False
@@ -125,7 +95,43 @@ class ConfigManager:
                     continue
                 item = item.strip('\n').strip('\r').strip(' ')
                 config.mail_to_list.append(item)
-        return True 
+        return True
+    def reload_config(self):
+        self.cf = ConfigParser.ConfigParser()
+        self.cf.read(self.config_file)
+        self.listen_port = 9090
+        if self.cf.has_option('common', 'listen_port'):
+            self.listen_port = self.cf.getint('common', 'listen_port')
+        self.work_dir = '/var/observer'
+        if self.cf.has_option('common', 'work_dir'):
+            self.work_dir = self.cf.get('common', 'work_dir')
+        self.observer_log = 'observer.log'
+        if self.cf.has_option('common', 'observer_log'):
+            self.observer_log = self.cf.get('common', 'observer_log')
+        self.record_file = 'process.dat'
+        if self.cf.has_option('common', 'record_file'):
+            self.record_file = self.cf.get('common', 'record_file')
+        self.pid_file = 'pid.dat'
+        if self.cf.has_option('common', 'pid_file'):
+            self.pid_file = self.cf.get('common', 'pid_file')
+        self.socket_timeout = 10
+        if self.cf.has_option('common', 'socket_timeout_sec'):
+            self.socket_timeout = self.cf.getint('common', 'socket_timeout_sec')
+        self.mail_interval_sec = 60 
+        if self.cf.has_option('common', 'mail_interval_sec'):
+            self.mail_interval_sec = self.cf.getint('common', 'mail_interval_sec')
+        self.mail_max_queue_num = 2
+        if self.cf.has_option('common', 'mail_max_queue_num'):
+            self.mail_max_queue_num = self.cf.getint('common', 'mail_max_queue_num')
+        assert(self.mail_max_queue_num > 0)
+        self.select_timeout = 2
+        if self.cf.has_option('common', 'select_timeout'):
+            self.select_timeout = self.cf.getint('common', 'select_timeout')
+        self.reload_config_interval_sec = 60
+        if self.cf.has_option('common', 'reload_config_interval_sec'):
+            self.reload_config_interval_sec = self.cf.getint('common', 'reload_config_interval_sec')
+        self.base_cfg = Config()
+        self.__load_config('base', self.base_cfg)
     def get_cmd_config(self, cmd_id):
         cmd_cfg = copy.deepcopy(self.base_cfg)
         self.__load_config(cmd_id, cmd_cfg)
